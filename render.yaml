@@ -1,0 +1,42 @@
+# Render Blueprint - Free Tier Deployment Configuration
+# =====================================================
+#
+# 🎓 WHAT IS THIS?
+# This renders the app on Render.com's free tier.
+# Your app will be live 24/7 (with 15-min sleep after inactivity)
+#
+# 🎓 FREE TIER LIMITS:
+# - 750 hours/month (enough for 24/7)
+# - Sleeps after 15 min inactivity
+# - Wakes up on request (~30 seconds delay)
+# - 512 MB RAM
+
+services:
+  - type: web
+    name: quant-research-engine
+    env: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: python run.py
+    envVars:
+      # Upstox API (set in Render dashboard for security)
+      - key: UPSTOX_API_KEY
+        sync: false
+      - key: UPSTOX_API_SECRET
+        sync: false
+      - key: UPSTOX_TOTP_SECRET
+        sync: false
+      - key: UPSTOX_REDIRECT_URI
+        value: https://127.0.0.1:5000/callback
+      
+      # Trading symbols
+      - key: SYMBOLS
+        value: RELIANCE,TCS,INFY,HDFCBANK,ICICIBANK
+      
+      # Capital and risk
+      - key: INITIAL_CAPITAL
+        value: "100000"
+      - key: MAX_DAILY_LOSS_PERCENT
+        value: "2.0"
+      - key: MAX_TRADES_PER_DAY
+        value: "50"
