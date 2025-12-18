@@ -140,17 +140,17 @@ class StrategyDNA:
             parent_id=parent_id,
             
             # Random parameters within reasonable ranges
-            min_spread_threshold=round(random.uniform(0.02, 0.20), 3),
-            stability_ticks=random.randint(1, 8),
-            latency_buffer_pct=round(random.uniform(0.01, 0.08), 3),
-            position_size_pct=round(random.uniform(2.0, 8.0), 1),
+            min_spread_threshold=round(random.uniform(0.001, 0.02), 4),
+            stability_ticks=random.randint(1, 5),
+            latency_buffer_pct=round(random.uniform(0.001, 0.01), 4),
+            position_size_pct=round(random.uniform(5.0, 20.0), 1),
             max_hold_seconds=random.choice([15, 30, 45, 60, 90, 120, 180]),
             
             preferred_session=random.choice(['all', 'opening', 'mid', 'closing']),
             volatility_preference=random.choice(['all', 'low', 'medium', 'high']),
             
-            take_profit_pct=round(random.uniform(0.05, 0.30), 3),
-            stop_loss_pct=round(random.uniform(0.10, 0.40), 3),
+            take_profit_pct=round(random.uniform(0.01, 0.10), 4),
+            stop_loss_pct=round(random.uniform(0.02, 0.15), 4),
         )
     
     @classmethod
@@ -163,15 +163,15 @@ class StrategyDNA:
         """
         return cls(
             name="Conservative",
-            min_spread_threshold=0.15,
-            stability_ticks=6,
-            latency_buffer_pct=0.05,
-            position_size_pct=3.0,
+            min_spread_threshold=0.005,  # 0.005% - very low for real markets
+            stability_ticks=3,
+            latency_buffer_pct=0.002,
+            position_size_pct=10.0,
             max_hold_seconds=90,
-            preferred_session='mid',
-            volatility_preference='low',
-            take_profit_pct=0.15,
-            stop_loss_pct=0.20,
+            preferred_session='all',
+            volatility_preference='all',
+            take_profit_pct=0.03,
+            stop_loss_pct=0.05,
         )
     
     @classmethod
@@ -184,15 +184,15 @@ class StrategyDNA:
         """
         return cls(
             name="Aggressive",
-            min_spread_threshold=0.03,
-            stability_ticks=2,
-            latency_buffer_pct=0.01,
-            position_size_pct=7.0,
+            min_spread_threshold=0.001,  # 0.001% - ultra aggressive
+            stability_ticks=1,
+            latency_buffer_pct=0.0005,
+            position_size_pct=20.0,
             max_hold_seconds=30,
             preferred_session='all',
-            volatility_preference='high',
-            take_profit_pct=0.08,
-            stop_loss_pct=0.25,
+            volatility_preference='all',
+            take_profit_pct=0.02,
+            stop_loss_pct=0.08,
         )
     
     @classmethod
@@ -204,15 +204,15 @@ class StrategyDNA:
         """
         return cls(
             name="Balanced",
-            min_spread_threshold=0.08,
-            stability_ticks=4,
-            latency_buffer_pct=0.03,
-            position_size_pct=5.0,
+            min_spread_threshold=0.003,  # 0.003%
+            stability_ticks=2,
+            latency_buffer_pct=0.001,
+            position_size_pct=15.0,
             max_hold_seconds=60,
-            preferred_session='mid',
-            volatility_preference='medium',
-            take_profit_pct=0.12,
-            stop_loss_pct=0.18,
+            preferred_session='all',
+            volatility_preference='all',
+            take_profit_pct=0.025,
+            stop_loss_pct=0.06,
         )
     
     # =========================================================
