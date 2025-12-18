@@ -130,7 +130,7 @@ async def lifespan(app: FastAPI):
 # CALLBACKS
 # =========================================================
 
-async def on_tick_received(tick: PriceTick):
+def on_tick_received(tick: PriceTick):
     """Process price tick updates."""
     app_state.tick_count += 1
     app_state.last_update = datetime.now()
@@ -140,7 +140,7 @@ async def on_tick_received(tick: PriceTick):
     regime_analyzer.add_tick(tick)
 
 
-async def on_spread_received(spread: SpreadData):
+def on_spread_received(spread: SpreadData):
     """Process spread updates."""
     # Update spread analyzer
     spread_analyzer = get_spread_analyzer()
@@ -154,7 +154,7 @@ async def on_spread_received(spread: SpreadData):
     # Feed to simulator
     simulator = get_simulator()
     simulator.update_regime(regime)
-    await simulator.on_spread_update(spread, signal)
+    asyncio.create_task(simulator.on_spread_update(spread, signal))
 
 
 # =========================================================
