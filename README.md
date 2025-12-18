@@ -2,224 +2,257 @@
 
 <div align="center">
 
-![Python](https://img.shields.io/badge/Python-3.11+-blue?style=for-the-badge&logo=python)
-![FastAPI](https://img.shields.io/badge/FastAPI-0.100+-green?style=for-the-badge&logo=fastapi)
-![Angel One](https://img.shields.io/badge/Angel%20One-SmartAPI-orange?style=for-the-badge)
-![License](https://img.shields.io/badge/License-MIT-yellow?style=for-the-badge)
-![Status](https://img.shields.io/badge/Status-Paper%20Trading-orange?style=for-the-badge)
+![Python](https://img.shields.io/badge/Python-3.11+-3776AB?style=for-the-badge&logo=python&logoColor=white)
+![FastAPI](https://img.shields.io/badge/FastAPI-0.100+-009688?style=for-the-badge&logo=fastapi&logoColor=white)
+![Angel One](https://img.shields.io/badge/Angel%20One-SmartAPI-FF6B35?style=for-the-badge)
+![WebSocket](https://img.shields.io/badge/WebSocket-Real--time-4A90D9?style=for-the-badge)
+![License](https://img.shields.io/badge/License-MIT-green?style=for-the-badge)
 
-**A self-improving quantitative trading research engine that exploits NSE-BSE price differences**
+### **A Self-Evolving Algorithmic Trading Research Platform**
 
-[Features](#-features) • [How It Works](#-how-it-works) • [Installation](#-installation) • [Screenshots](#-screenshots) • [Strategy](#-strategy)
+*8 parallel strategies compete • Genetic evolution • NSE-BSE arbitrage detection*
+
+[Live Demo](https://quant-strategy-research-engine.onrender.com) • [Features](#-key-features) • [Architecture](#-architecture) • [Quick Start](#-quick-start)
+
+---
 
 </div>
 
----
-
 ## 🎯 What Is This?
 
-This is an **NSE-BSE Arbitrage Research Engine** that:
+A **quantitative research engine** that:
 
-1. **Monitors** real-time price differences between NSE and BSE for the same stock
-2. **Detects** when the spread exceeds a profitable threshold (typically ₹0.30-0.80)
-3. **Simulates** buying on the cheaper exchange and selling on the expensive one
-4. **Evolves** strategies using genetic algorithms - bad strategies die, good ones survive
+1. **Runs 8 trading strategies simultaneously** - each with unique genetic parameters
+2. **Monitors NSE-BSE price spreads** in real-time via WebSocket
+3. **Evolves strategies** using genetic algorithms - weak strategies die, strong ones mutate & reproduce
+4. **Implements strict risk management** - daily loss caps, position limits, kill switch
+5. **Paper trades only** - no real money, pure research & learning
 
-> ⚠️ **Educational Only** - This runs in paper trading mode. No real money is traded.
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                    QUANT RESEARCH ENGINE                            │
+├─────────────────────────────────────────────────────────────────────┤
+│                                                                     │
+│   ┌─────────┐  ┌─────────┐  ┌─────────┐  ┌─────────┐              │
+│   │Strategy │  │Strategy │  │Strategy │  │Strategy │   ...x8      │
+│   │   A     │  │   B     │  │   C     │  │   D     │              │
+│   └────┬────┘  └────┬────┘  └────┬────┘  └────┬────┘              │
+│        │            │            │            │                    │
+│        └────────────┴────────────┴────────────┘                    │
+│                          │                                          │
+│                    ┌─────▼─────┐                                   │
+│                    │ EVOLUTION │ ← Genetic Algorithm               │
+│                    │  ENGINE   │   (Select, Mutate, Crossover)     │
+│                    └─────┬─────┘                                   │
+│                          │                                          │
+│              ┌───────────┼───────────┐                             │
+│              ▼           ▼           ▼                             │
+│         ┌────────┐  ┌────────┐  ┌────────┐                        │
+│         │RETIRE  │  │CHAMPION│  │ MUTATE │                        │
+│         │Bottom  │  │ Wins   │  │Winners │                        │
+│         │ 25%    │  │        │  │        │                        │
+│         └────────┘  └────────┘  └────────┘                        │
+│                                                                     │
+└─────────────────────────────────────────────────────────────────────┘
+```
 
 ---
 
-## 📊 The Arbitrage Opportunity
+## 💰 The Arbitrage Opportunity
+
+Same stock trades at **slightly different prices** on NSE vs BSE:
 
 ```
-NSE Price: ₹2,450.30  |  BSE Price: ₹2,450.70
-                         ↓
-              Spread = ₹0.40 per share
-                         ↓
-        Buy 100 shares on NSE = ₹2,45,030
-        Sell 100 shares on BSE = ₹2,45,070
-                         ↓
-              Profit = ₹40 (minus fees)
+┌─────────────────────────────────────────────────────────────────────┐
+│  RELIANCE                                                           │
+│  ──────────                                                         │
+│  NSE Price: ₹2,850.30                                              │
+│  BSE Price: ₹2,850.75                                              │
+│                    ↓                                                │
+│            Spread = ₹0.45/share                                    │
+│                    ↓                                                │
+│  Buy 100 on NSE  = ₹2,85,030                                       │
+│  Sell 100 on BSE = ₹2,85,075                                       │
+│                    ↓                                                │
+│            Profit = ₹45 (minus fees)                               │
+│                                                                     │
+│  This happens MULTIPLE times per day across 30+ stocks!            │
+└─────────────────────────────────────────────────────────────────────┘
 ```
-
-This happens multiple times per day across high-liquidity stocks!
 
 ---
 
-## ✨ Features
+## ✨ Key Features
 
 | Feature | Description |
 |---------|-------------|
-| 🔄 **Real-time Monitoring** | Angel One WebSocket V2 for live NSE-BSE prices |
-| 🧬 **8 Parallel Strategies** | Different parameters compete simultaneously |
-| 📈 **Self-Evolution** | Bottom 25% strategies retire, top ones reproduce |
-| 🏆 **Champion-Challenger** | Best strategy handles the "real" portfolio |
-| 🛡️ **Risk Management** | Daily loss caps, position limits, kill switch |
-| 📊 **Live Dashboard** | Web UI showing all metrics in real-time |
-| 📄 **Printable Reports** | Complete trade log and strategy analysis |
+| 🔄 **Real-time WebSocket** | Angel One SmartAPI WebSocket V2 for live NSE-BSE data |
+| 🧬 **Genetic Evolution** | Strategies evolve through selection, mutation & crossover |
+| 🏆 **Champion-Challenger** | Best strategy handles "real" portfolio, others compete |
+| 📊 **30+ Stocks** | Tracking large-caps across IT, Banking, FMCG, Energy, Metals |
+| 🛡️ **Risk Management** | Kill switch, daily loss caps, position limits |
+| 📈 **Live Dashboard** | Real-time monitoring with strategy leaderboard |
+| 📄 **Printable Reports** | Complete trade logs, strategy DNA, performance analysis |
 
 ---
 
-## 🖥️ Screenshots
+## 🏗️ Architecture
 
-### Dashboard
-![Dashboard](screenshots/dashboard.png)
-*Real-time dashboard showing portfolio, strategies, and controls*
-
-### Report Page
-![Report](screenshots/report.png)
-*Complete report with all strategy DNA and trade history*
+```
+├── run.py                      # Entry point
+├── config.py                   # Settings & environment
+│
+├── data/                       # Market Data Layer
+│   ├── angelone_auth.py       # Angel One OAuth + TOTP
+│   ├── websocket_streamer.py  # Real-time WebSocket V2
+│   └── instruments.py         # NSE/BSE token mapping
+│
+├── analysis/                   # Analysis Layer
+│   ├── regime_analyzer.py     # Market regime detection
+│   └── spread_analyzer.py     # NSE-BSE spread calculation
+│
+├── strategies/                 # Strategy Engine
+│   ├── strategy_dna.py        # Genetic parameters
+│   ├── generator.py           # Population creation
+│   ├── simulator.py           # Parallel execution
+│   └── paper_trader.py        # Champion management
+│
+├── evolution/                  # Evolution Engine
+│   └── evaluator.py           # Sharpe, Sortino, Drawdown
+│
+├── risk/                       # Risk Management
+│   └── risk_manager.py        # Kill switch, limits
+│
+└── api/                        # API & Dashboard
+    └── main.py                # FastAPI + WebSocket
+```
 
 ---
 
-## 🚀 Installation
+## 🚀 Quick Start
 
 ```bash
-# Clone the repo
+# Clone
 git clone https://github.com/SypherKx/Quant-Strategy-Research-Engine.git
 cd Quant-Strategy-Research-Engine
 
-# Install dependencies
+# Install
 pip install -r requirements.txt
 
-# Copy and configure environment
+# Configure (copy and edit .env)
 cp .env.example .env
-# Edit .env with your Angel One credentials
 
-# Run the engine
+# Run
 python run.py
-```
 
-Open **http://localhost:8000** in your browser!
+# Open Dashboard
+# http://localhost:8000
+```
 
 ---
 
 ## 🔑 Angel One SmartAPI Setup
 
-1. **Create Account**: Sign up at [Angel One](https://www.angelone.in/)
-2. **Get API Access**: Go to [SmartAPI Portal](https://smartapi.angelone.in/)
-3. **Create App**: Register a new app (free)
-4. **Get Credentials**:
-   - `ANGELONE_API_KEY`: Your API Key
-   - `ANGELONE_CLIENT_CODE`: Your client code (e.g., A12345678)
-   - `ANGELONE_PIN`: Your trading PIN
-   - `ANGELONE_TOTP_SECRET`: Enable 2FA and get the TOTP secret
+1. Create account at [Angel One](https://www.angelone.in/)
+2. Register at [SmartAPI Portal](https://smartapi.angelone.in/)
+3. Create app (FREE) and get credentials
+4. Add to `.env`:
 
-Without API keys, the engine runs in **mock mode** with simulated data.
+```env
+ANGELONE_API_KEY=your_api_key
+ANGELONE_CLIENT_CODE=your_client_code
+ANGELONE_PIN=your_pin
+ANGELONE_TOTP_SECRET=your_totp_secret
+```
+
+**Without credentials, runs in Mock Mode with simulated data.**
 
 ---
 
-## 🧠 How It Works
+## 🧬 Strategy DNA
 
-### 1. Strategy DNA
-Each strategy has genetic parameters:
+Each strategy has genetic parameters that can mutate:
+
 ```python
 {
     "min_spread_threshold": 0.03,  # Minimum % spread to trade
-    "stability_ticks": 3,          # How long spread must be stable
+    "stability_ticks": 3,          # Ticks spread must be stable
     "position_size_pct": 5.0,      # % of capital per trade
     "take_profit_pct": 0.05,       # Exit at this profit %
     "stop_loss_pct": 0.02,         # Exit at this loss %
+    "preferred_session": "mid",     # morning/mid/closing
 }
 ```
 
-### 2. Evolution Process
-```
-Generation 1: 8 random strategies compete
-        ↓
-After 24 hours: Evaluate performance (Sharpe, Win Rate, Drawdown)
-        ↓
-Bottom 25% (2 strategies) → RETIRED ☠️
-Top performers → Create mutated offspring
-        ↓
-Generation 2: New population competes
-        ↓
-Repeat... strategies get better over time!
-```
+---
 
-### 3. Performance Metrics
-- **Sharpe Ratio**: Risk-adjusted returns
-- **Win Rate**: Percentage of profitable trades
-- **Max Drawdown**: Worst peak-to-trough loss
-- **Composite Score**: Weighted combination for ranking
+## 📊 Performance Metrics
+
+| Metric | Description |
+|--------|-------------|
+| **Sharpe Ratio** | Risk-adjusted returns (>1 good, >2 excellent) |
+| **Sortino Ratio** | Like Sharpe but only penalizes downside |
+| **Max Drawdown** | Worst peak-to-trough decline |
+| **Win Rate** | % of profitable trades |
+| **Composite Score** | Weighted combination for ranking |
 
 ---
 
-## 📁 Project Structure
+## 🛡️ Risk Management
 
 ```
-├── run.py                 # Entry point
-├── config.py              # Settings (capital, risk limits)
-├── core/
-│   ├── database.py        # SQLite async storage
-│   ├── logger.py          # Colored logging
-│   └── scheduler.py       # Market hours scheduler
-├── data/
-│   ├── angelone_auth.py   # Angel One SmartAPI OAuth2 + TOTP
-│   ├── websocket_streamer.py  # Real-time WebSocket V2 data
-│   └── instruments.py     # NSE/BSE token mapping
-├── analysis/
-│   ├── regime_analyzer.py # Volatility/Liquidity detection
-│   └── spread_analyzer.py # NSE-BSE spread calculation
-├── strategies/
-│   ├── strategy_dna.py    # Genetic parameters
-│   ├── generator.py       # Population creation
-│   ├── simulator.py       # Parallel execution
-│   └── paper_trader.py    # Champion-Challenger
-├── evolution/
-│   └── evaluator.py       # Sharpe, Sortino, Drawdown
-├── risk/
-│   └── risk_manager.py    # Kill switch, limits
-└── api/
-    └── main.py            # FastAPI + Dashboard
+┌─────────────────────────────────────────────────────────────────┐
+│                     RISK HIERARCHY                              │
+├─────────────────────────────────────────────────────────────────┤
+│  Level 1: KILL SWITCH                                          │
+│           Extreme volatility / API failure → STOP EVERYTHING   │
+├─────────────────────────────────────────────────────────────────┤
+│  Level 2: DAILY LOSS CAP                                       │
+│           Daily loss > X% → No more trades today               │
+├─────────────────────────────────────────────────────────────────┤
+│  Level 3: POSITION LIMITS                                      │
+│           Single position > X% → Reduce size                   │
+├─────────────────────────────────────────────────────────────────┤
+│  Level 4: TRADE FREQUENCY                                      │
+│           > N trades/day → Stop trading                        │
+└─────────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## ⚙️ Configuration
+## 📸 Screenshots
 
-Copy `.env.example` to `.env`:
+### Dashboard
+*Real-time monitoring with strategy leaderboard, portfolio value, and controls*
 
-```env
-# Angel One SmartAPI Credentials
-ANGELONE_API_KEY=your_api_key
-ANGELONE_CLIENT_CODE=A12345678
-ANGELONE_PIN=1234
-ANGELONE_TOTP_SECRET=your_totp_secret
-
-# Trading settings
-SYMBOLS=RELIANCE,TCS,INFY,HDFCBANK,ICICIBANK
-INITIAL_CAPITAL=10000
-MAX_DAILY_LOSS_PERCENT=2.0
-MAX_TRADES_PER_DAY=50
-```
+### Report Page
+*Complete analysis with all strategy DNA, trades, and performance metrics*
 
 ---
 
-## 🔒 Risk Management
+## 🔗 Tech Stack
 
-| Parameter | Default | Purpose |
-|-----------|---------|---------|
-| Daily Loss Cap | 2% | Stop trading after 2% daily loss |
-| Max Trades/Day | 50 | Prevent overtrading |
-| Max Position | 10% | No single trade > 10% of capital |
-| Kill Switch | Auto | Emergency stop on extreme volatility |
-
----
-
-## 📄 License
-
-MIT License - Use freely for learning and research.
+- **Backend:** Python 3.11+, FastAPI, asyncio
+- **Market Data:** Angel One SmartAPI WebSocket V2
+- **Database:** SQLite (async)
+- **Frontend:** Vanilla HTML/CSS/JS (no framework bloat)
+- **Deployment:** Render.com (FREE tier)
 
 ---
 
 ## ⚠️ Disclaimer
 
-This project is for **educational and research purposes only**. 
-- No real money is traded
-- Past performance doesn't guarantee future results
-- Real arbitrage requires sub-millisecond execution
-- Actual trading involves fees, slippage, and execution risk
+> This project is for **educational and research purposes only**.
+> - No real money is traded
+> - Past performance doesn't guarantee future results
+> - Real arbitrage requires sub-millisecond execution
+> - Actual trading involves fees, slippage, execution risk
+
+---
+
+## 📜 License
+
+MIT License - Use freely for learning and research.
 
 ---
 
@@ -228,5 +261,7 @@ This project is for **educational and research purposes only**.
 **Built for learning - every decision explained, every trade documented.**
 
 ⭐ Star this repo if you find it useful!
+
+Made with 🧬 by a quant enthusiast
 
 </div>
