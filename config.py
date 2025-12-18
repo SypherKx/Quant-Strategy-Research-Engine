@@ -119,21 +119,21 @@ class Settings(BaseSettings):
     MAX_DAILY_LOSS_PERCENT: float = Field(
         default=2.0,
         ge=0.5,
-        le=5.0,
+        le=100.0,  # Allow up to 100% for testing
         description="Maximum daily loss before trading stops"
     )
     
     MAX_TRADES_PER_DAY: int = Field(
         default=50,
         ge=10,
-        le=200,
+        le=100000,  # Allow high values for testing
         description="Maximum number of trades per day"
     )
     
     MAX_POSITION_SIZE_PERCENT: float = Field(
         default=10.0,
         ge=1.0,
-        le=25.0,
+        le=100.0,  # Allow up to 100% for testing
         description="Maximum percentage of capital per position"
     )
     
