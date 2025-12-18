@@ -610,11 +610,9 @@ def get_market_streamer() -> MarketDataStreamer:
     global _streamer
     
     if _streamer is None:
-        # Check if we have real credentials
-        if not settings.ANGELONE_API_KEY or settings.ANGELONE_API_KEY == "your_api_key_here":
-            _streamer = MockMarketDataStreamer()
-        else:
-            _streamer = MarketDataStreamer()
+        # Force mock mode for now - real WebSocket has connection issues
+        # TODO: Fix Angel One WebSocket connection
+        _streamer = MockMarketDataStreamer()
     
     return _streamer
 
