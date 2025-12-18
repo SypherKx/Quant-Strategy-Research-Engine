@@ -19,15 +19,15 @@ services:
     buildCommand: pip install -r requirements.txt
     startCommand: python run.py
     envVars:
-      # Upstox API (set in Render dashboard for security)
-      - key: UPSTOX_API_KEY
+      # Angel One SmartAPI (set in Render dashboard for security)
+      - key: ANGELONE_API_KEY
         sync: false
-      - key: UPSTOX_API_SECRET
+      - key: ANGELONE_CLIENT_CODE
         sync: false
-      - key: UPSTOX_TOTP_SECRET
+      - key: ANGELONE_PIN
         sync: false
-      - key: UPSTOX_REDIRECT_URI
-        value: https://127.0.0.1:5000/callback
+      - key: ANGELONE_TOTP_SECRET
+        sync: false
       
       # Trading symbols
       - key: SYMBOLS
@@ -35,7 +35,7 @@ services:
       
       # Capital and risk
       - key: INITIAL_CAPITAL
-        value: "100000"
+        value: "10000"
       - key: MAX_DAILY_LOSS_PERCENT
         value: "2.0"
       - key: MAX_TRADES_PER_DAY

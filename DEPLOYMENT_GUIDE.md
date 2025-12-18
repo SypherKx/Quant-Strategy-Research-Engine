@@ -73,11 +73,12 @@ In Render Dashboard → Your Service → **Environment**:
 
 | Key | Value |
 |-----|-------|
-| `UPSTOX_API_KEY` | (your key) |
-| `UPSTOX_API_SECRET` | (your secret) |
-| `UPSTOX_TOTP_SECRET` | (your TOTP secret) |
+| `ANGELONE_API_KEY` | (your key) |
+| `ANGELONE_CLIENT_CODE` | (your client code) |
+| `ANGELONE_PIN` | (your trading PIN) |
+| `ANGELONE_TOTP_SECRET` | (your TOTP secret) |
 | `SYMBOLS` | `RELIANCE,TCS,INFY,HDFCBANK,ICICIBANK` |
-| `INITIAL_CAPITAL` | `100000` |
+| `INITIAL_CAPITAL` | `10000` |
 
 > **Note:** Leave API fields empty to run in Mock Mode (testing only)
 
@@ -134,7 +135,7 @@ Once deployed:
 - Usually missing environment variables
 
 ### "API errors"
-- Verify Upstox credentials
+- Verify Angel One credentials
 - Check if market is open
 
 ### "Free tier usage exceeded"

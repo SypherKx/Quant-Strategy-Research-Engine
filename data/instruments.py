@@ -1,41 +1,37 @@
 """
-Instrument Discovery Module
-===========================
+Instrument Discovery Module (Angel One SmartAPI)
+=================================================
 
 🎓 WHAT IS THIS FILE?
 This file handles mapping between stock symbols and exchange-specific
-identifiers (instrument keys, ISINs, tokens).
+identifiers (instrument tokens).
 
 🎓 WHY IS THIS NEEDED?
 
 Stock exchanges don't just use "RELIANCE" as identifier.
-They use complex codes:
-- NSE: Instrument Token (numeric ID)
-- BSE: Scrip Code (numeric)
-- Both: ISIN (International Securities ID)
+They use token codes:
+- NSE: Numeric token (e.g., 2885 for RELIANCE)
+- BSE: Scrip code (e.g., 500325 for RELIANCE)
 
 Example for RELIANCE:
 ┌──────────┬─────────────────┬─────────────────────┐
 │ Exchange │ Identifier      │ Example             │
 ├──────────┼─────────────────┼─────────────────────┤
-│ Symbol   │ Trading Symbol  │ RELIANCE            │
-│ ISIN     │ Unique ID       │ INE002A01018        │
-│ NSE      │ Instrument Key  │ NSE_EQ|INE002A01018 │
-│ BSE      │ Instrument Key  │ BSE_EQ|INE002A01018 │
+│ Symbol   │ Trading Symbol  │ RELIANCE-EQ         │
+│ NSE      │ Token           │ 2885                │
 │ BSE      │ Scrip Code      │ 500325              │
+│ ISIN     │ Unique ID       │ INE002A01018        │
 └──────────┴─────────────────┴─────────────────────┘
 
-🎓 ISIN EXPLAINED:
-ISIN = International Securities Identification Number
-- Globally unique identifier for securities
-- Format: 2-letter country + 9 alphanumeric + 1 check digit
-- India: Starts with "IN"
-- Example: INE002A01018 (Reliance Industries)
+🎓 ANGEL ONE TOKEN FORMAT:
+For WebSocket subscription:
+- exchangeType: 1 (NSE), 3 (BSE)
+- token: Numeric token as string
 
-We use ISIN as the primary identifier because:
-1. Same across NSE and BSE
-2. Never changes (unlike trading symbols)
-3. Required for regulatory compliance
+For REST API:
+- exchange: "NSE" or "BSE"
+- symboltoken: Numeric token as string
+- tradingsymbol: "RELIANCE-EQ"
 """
 
 import httpx
@@ -53,7 +49,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from config import settings
 from core.logger import logger
-from data.upstox_auth import get_auth_client
+from data.angelone_auth import get_auth_client
 
 
 # Cache file for instruments (refreshed daily)
@@ -74,10 +70,11 @@ class Instrument:
     name: str            # Full name (Reliance Industries Limited)
     isin: str            # ISIN (INE002A01018)
     exchange: str        # NSE or BSE
-    instrument_key: str  # For WebSocket subscription
-    token: str           # Exchange token
+    token: str           # Exchange token (2885 for NSE, 500325 for BSE)
+    trading_symbol: str  # Full trading symbol (RELIANCE-EQ)
     lot_size: int = 1    # Minimum trade quantity
     tick_size: float = 0.05  # Minimum price movement
+    instrument_type: str = "EQ"  # EQ, FUT, OPT, etc.
     
     def to_dict(self) -> dict:
         return {
@@ -85,10 +82,11 @@ class Instrument:
             "name": self.name,
             "isin": self.isin,
             "exchange": self.exchange,
-            "instrument_key": self.instrument_key,
             "token": self.token,
+            "trading_symbol": self.trading_symbol,
             "lot_size": self.lot_size,
-            "tick_size": self.tick_size
+            "tick_size": self.tick_size,
+            "instrument_type": self.instrument_type
         }
     
     @classmethod
@@ -108,12 +106,9 @@ class InstrumentManager:
     reliance_nse = manager.get("RELIANCE", "NSE")
     reliance_bse = manager.get("RELIANCE", "BSE")
     
-    # Get instrument keys for WebSocket
-    keys = manager.get_instrument_keys(["RELIANCE", "TCS"])
+    # Get tokens for WebSocket subscription
+    tokens = manager.get_tokens(["RELIANCE", "TCS"])
     """
-    
-    # Upstox instruments API
-    INSTRUMENTS_URL = "https://api.upstox.com/v2/instruments"
     
     def __init__(self):
         self.auth = get_auth_client()
@@ -121,8 +116,8 @@ class InstrumentManager:
         # Instruments indexed by (symbol, exchange)
         self._instruments: Dict[tuple, Instrument] = {}
         
-        # ISIN to instruments mapping
-        self._by_isin: Dict[str, Dict[str, Instrument]] = {}
+        # Token to instrument mapping
+        self._by_token: Dict[str, Dict[str, Instrument]] = {}  # {token: {exchange: instrument}}
         
         self._initialized = False
     
@@ -142,7 +137,7 @@ class InstrumentManager:
             logger.info(f"✅ Loaded {len(self._instruments)} instruments from cache")
             return
         
-        # Fetch fresh data
+        # Fetch fresh data or use fallback
         await self._fetch_instruments()
         self._initialized = True
     
@@ -150,23 +145,58 @@ class InstrumentManager:
         """Get instrument by symbol and exchange."""
         return self._instruments.get((symbol.upper(), exchange.upper()))
     
-    def get_by_isin(self, isin: str) -> Dict[str, Instrument]:
-        """Get all instruments for an ISIN (both NSE and BSE)."""
-        return self._by_isin.get(isin.upper(), {})
+    def get_by_token(self, token: str, exchange: str) -> Optional[Instrument]:
+        """Get instrument by token."""
+        return self._by_token.get(token, {}).get(exchange.upper())
     
-    def get_instrument_keys(self, symbols: List[str]) -> List[str]:
+    def get_tokens(self, symbols: List[str]) -> Dict[str, Dict[str, str]]:
         """
-        Get instrument keys for WebSocket subscription.
+        Get tokens for WebSocket subscription.
         
-        🎓 Returns keys for both NSE and BSE for each symbol.
+        🎓 Returns dict like:
+        {
+            "RELIANCE": {"NSE": "2885", "BSE": "500325"},
+            "TCS": {"NSE": "11536", "BSE": "532540"}
+        }
         """
-        keys = []
+        result = {}
         for symbol in symbols:
+            result[symbol] = {}
             for exchange in ["NSE", "BSE"]:
                 instrument = self.get(symbol, exchange)
                 if instrument:
-                    keys.append(instrument.instrument_key)
-        return keys
+                    result[symbol][exchange] = instrument.token
+        return result
+    
+    def get_subscription_list(self, symbols: List[str]) -> List[dict]:
+        """
+        Get token list formatted for Angel One WebSocket subscription.
+        
+        🎓 Returns list like:
+        [
+            {"exchangeType": 1, "tokens": ["2885", "11536"]},  # NSE
+            {"exchangeType": 3, "tokens": ["500325", "532540"]}  # BSE
+        ]
+        """
+        nse_tokens = []
+        bse_tokens = []
+        
+        for symbol in symbols:
+            nse_inst = self.get(symbol, "NSE")
+            bse_inst = self.get(symbol, "BSE")
+            
+            if nse_inst:
+                nse_tokens.append(nse_inst.token)
+            if bse_inst:
+                bse_tokens.append(bse_inst.token)
+        
+        result = []
+        if nse_tokens:
+            result.append({"exchangeType": 1, "tokens": nse_tokens})
+        if bse_tokens:
+            result.append({"exchangeType": 3, "tokens": bse_tokens})
+        
+        return result
     
     def get_all_symbols(self) -> List[str]:
         """Get list of all known symbols."""
@@ -177,109 +207,108 @@ class InstrumentManager:
     
     async def _fetch_instruments(self):
         """
-        Fetch instruments from Upstox API.
+        Fetch instruments from Angel One API.
         
-        🎓 This downloads the full instrument list from Upstox.
-        Takes a few seconds but only done once per day.
+        🎓 Angel One provides instrument master files.
+        For simplicity, we use a fallback list of common stocks.
         """
-        logger.info("📥 Fetching instruments from Upstox...")
+        logger.info("📥 Loading instruments...")
         
         try:
-            # For equity, we need NSE and BSE segments
-            for segment in ["NSE_EQ", "BSE_EQ"]:
-                await self._fetch_segment(segment)
-            
-            # Save to cache
-            self._save_cache()
-            
-            logger.info(f"✅ Fetched {len(self._instruments)} instruments")
-            
+            # Try to get from API if authenticated
+            smart_api = self.auth.get_smart_api()
+            if smart_api:
+                # Angel One has searchScrip API
+                for symbol in settings.symbol_list:
+                    try:
+                        response = smart_api.searchScrip(exchange="NSE", searchscrip=symbol)
+                        if response.get('status') and response.get('data'):
+                            for item in response['data']:
+                                instrument = Instrument(
+                                    symbol=symbol,
+                                    name=item.get('tradingsymbol', ''),
+                                    isin='',
+                                    exchange='NSE',
+                                    token=item.get('symboltoken', ''),
+                                    trading_symbol=item.get('tradingsymbol', ''),
+                                )
+                                key = (symbol, 'NSE')
+                                self._instruments[key] = instrument
+                    except Exception as e:
+                        logger.debug(f"Could not fetch {symbol}: {e}")
+                
+                self._save_cache()
+                logger.info(f"✅ Fetched {len(self._instruments)} instruments from API")
+                
         except Exception as e:
-            logger.error(f"Failed to fetch instruments: {e}")
-            # Fall back to hardcoded common instruments
+            logger.warning(f"Failed to fetch instruments: {e}")
+        
+        # Always ensure fallback is loaded
+        if len(self._instruments) < len(settings.symbol_list):
             self._load_fallback()
-    
-    async def _fetch_segment(self, segment: str):
-        """Fetch instruments for a specific segment."""
-        try:
-            token = await self.auth.get_access_token()
-            
-            async with httpx.AsyncClient() as client:
-                response = await client.get(
-                    self.INSTRUMENTS_URL,
-                    params={"instrument_type": segment},
-                    headers=self.auth.get_api_headers(),
-                    timeout=30
-                )
-                
-                if response.status_code != 200:
-                    logger.warning(f"Failed to fetch {segment}: {response.status_code}")
-                    return
-                
-                data = response.json()
-                
-                for item in data.get("data", []):
-                    instrument = Instrument(
-                        symbol=item.get("trading_symbol", ""),
-                        name=item.get("name", ""),
-                        isin=item.get("isin", ""),
-                        exchange="NSE" if "NSE" in segment else "BSE",
-                        instrument_key=item.get("instrument_key", ""),
-                        token=item.get("instrument_token", ""),
-                        lot_size=item.get("lot_size", 1),
-                        tick_size=item.get("tick_size", 0.05)
-                    )
-                    
-                    key = (instrument.symbol, instrument.exchange)
-                    self._instruments[key] = instrument
-                    
-                    if instrument.isin:
-                        if instrument.isin not in self._by_isin:
-                            self._by_isin[instrument.isin] = {}
-                        self._by_isin[instrument.isin][instrument.exchange] = instrument
-                        
-        except Exception as e:
-            logger.error(f"Error fetching segment {segment}: {e}")
     
     def _load_fallback(self):
         """
         Load hardcoded fallback instruments.
         
         🎓 Used when API is unavailable.
-        Contains common large-cap stocks.
+        Contains common large-cap stocks with their tokens.
         """
-        logger.warning("Using fallback instrument list")
+        logger.info("Using fallback instrument list")
         
+        # Common large-cap stocks with their NSE and BSE tokens
         fallback_data = [
-            ("RELIANCE", "Reliance Industries", "INE002A01018"),
-            ("TCS", "Tata Consultancy Services", "INE467B01029"),
-            ("INFY", "Infosys Limited", "INE009A01021"),
-            ("HDFCBANK", "HDFC Bank Limited", "INE040A01034"),
-            ("ICICIBANK", "ICICI Bank Limited", "INE090A01021"),
-            ("HINDUNILVR", "Hindustan Unilever", "INE030A01027"),
-            ("ITC", "ITC Limited", "INE154A01025"),
-            ("SBIN", "State Bank of India", "INE062A01020"),
-            ("BHARTIARTL", "Bharti Airtel", "INE397D01024"),
-            ("KOTAKBANK", "Kotak Mahindra Bank", "INE237A01028"),
+            ("RELIANCE", "Reliance Industries", "INE002A01018", "2885", "500325"),
+            ("TCS", "Tata Consultancy Services", "INE467B01029", "11536", "532540"),
+            ("INFY", "Infosys Limited", "INE009A01021", "1594", "500209"),
+            ("HDFCBANK", "HDFC Bank Limited", "INE040A01034", "1333", "500180"),
+            ("ICICIBANK", "ICICI Bank Limited", "INE090A01021", "4963", "532174"),
+            ("HINDUNILVR", "Hindustan Unilever", "INE030A01027", "1394", "500696"),
+            ("ITC", "ITC Limited", "INE154A01025", "1660", "500875"),
+            ("SBIN", "State Bank of India", "INE062A01020", "3045", "500112"),
+            ("BHARTIARTL", "Bharti Airtel", "INE397D01024", "10604", "532454"),
+            ("KOTAKBANK", "Kotak Mahindra Bank", "INE237A01028", "1922", "500247"),
+            ("LT", "Larsen & Toubro", "INE018A01030", "11483", "500510"),
+            ("WIPRO", "Wipro Limited", "INE075A01022", "3787", "507685"),
+            ("AXISBANK", "Axis Bank Limited", "INE238A01034", "5900", "532215"),
+            ("MARUTI", "Maruti Suzuki India", "INE585B01010", "10999", "532500"),
+            ("SUNPHARMA", "Sun Pharma Industries", "INE044A01036", "3351", "524715"),
         ]
         
-        for symbol, name, isin in fallback_data:
-            for exchange in ["NSE", "BSE"]:
-                instrument = Instrument(
-                    symbol=symbol,
-                    name=name,
-                    isin=isin,
-                    exchange=exchange,
-                    instrument_key=f"{exchange}_EQ|{isin}",
-                    token=f"{exchange}_{symbol}",
-                )
-                
-                key = (symbol, exchange)
-                self._instruments[key] = instrument
-                
-                if isin not in self._by_isin:
-                    self._by_isin[isin] = {}
-                self._by_isin[isin][exchange] = instrument
+        for symbol, name, isin, nse_token, bse_token in fallback_data:
+            # NSE instrument
+            nse_instrument = Instrument(
+                symbol=symbol,
+                name=name,
+                isin=isin,
+                exchange="NSE",
+                token=nse_token,
+                trading_symbol=f"{symbol}-EQ",
+            )
+            key = (symbol, "NSE")
+            self._instruments[key] = nse_instrument
+            
+            if nse_token not in self._by_token:
+                self._by_token[nse_token] = {}
+            self._by_token[nse_token]["NSE"] = nse_instrument
+            
+            # BSE instrument
+            bse_instrument = Instrument(
+                symbol=symbol,
+                name=name,
+                isin=isin,
+                exchange="BSE",
+                token=bse_token,
+                trading_symbol=symbol,
+            )
+            key = (symbol, "BSE")
+            self._instruments[key] = bse_instrument
+            
+            if bse_token not in self._by_token:
+                self._by_token[bse_token] = {}
+            self._by_token[bse_token]["BSE"] = bse_instrument
+        
+        logger.info(f"✅ Loaded {len(self._instruments)} instruments from fallback")
     
     def _save_cache(self):
         """Save instruments to cache file."""
@@ -313,10 +342,9 @@ class InstrumentManager:
                 key = (instrument.symbol, instrument.exchange)
                 self._instruments[key] = instrument
                 
-                if instrument.isin:
-                    if instrument.isin not in self._by_isin:
-                        self._by_isin[instrument.isin] = {}
-                    self._by_isin[instrument.isin][instrument.exchange] = instrument
+                if instrument.token not in self._by_token:
+                    self._by_token[instrument.token] = {}
+                self._by_token[instrument.token][instrument.exchange] = instrument
             
             return True
             
@@ -360,15 +388,15 @@ if __name__ == "__main__":
             for exchange in ["NSE", "BSE"]:
                 inst = manager.get(symbol, exchange)
                 if inst:
-                    print(f"   {exchange}: {inst.instrument_key}")
-                    print(f"         ISIN: {inst.isin}")
+                    print(f"   {exchange}: Token={inst.token}, Symbol={inst.trading_symbol}")
                 else:
                     print(f"   {exchange}: Not found")
         
-        # Get instrument keys for subscription
-        print("\n🔑 Instrument Keys for WebSocket:")
-        keys = manager.get_instrument_keys(settings.symbol_list[:3])
-        for key in keys:
-            print(f"   {key}")
+        # Get subscription list
+        print("\n🔑 WebSocket Subscription Format:")
+        sub_list = manager.get_subscription_list(settings.symbol_list[:3])
+        for item in sub_list:
+            exchange_name = "NSE" if item["exchangeType"] == 1 else "BSE"
+            print(f"   {exchange_name}: {item['tokens']}")
     
     asyncio.run(main())

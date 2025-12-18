@@ -4,6 +4,7 @@
 
 ![Python](https://img.shields.io/badge/Python-3.11+-blue?style=for-the-badge&logo=python)
 ![FastAPI](https://img.shields.io/badge/FastAPI-0.100+-green?style=for-the-badge&logo=fastapi)
+![Angel One](https://img.shields.io/badge/Angel%20One-SmartAPI-orange?style=for-the-badge)
 ![License](https://img.shields.io/badge/License-MIT-yellow?style=for-the-badge)
 ![Status](https://img.shields.io/badge/Status-Paper%20Trading-orange?style=for-the-badge)
 
@@ -49,7 +50,7 @@ This happens multiple times per day across high-liquidity stocks!
 
 | Feature | Description |
 |---------|-------------|
-| 🔄 **Real-time Monitoring** | WebSocket connection for live NSE-BSE prices |
+| 🔄 **Real-time Monitoring** | Angel One WebSocket V2 for live NSE-BSE prices |
 | 🧬 **8 Parallel Strategies** | Different parameters compete simultaneously |
 | 📈 **Self-Evolution** | Bottom 25% strategies retire, top ones reproduce |
 | 🏆 **Champion-Challenger** | Best strategy handles the "real" portfolio |
@@ -81,11 +82,30 @@ cd Quant-Strategy-Research-Engine
 # Install dependencies
 pip install -r requirements.txt
 
+# Copy and configure environment
+cp .env.example .env
+# Edit .env with your Angel One credentials
+
 # Run the engine
 python run.py
 ```
 
 Open **http://localhost:8000** in your browser!
+
+---
+
+## 🔑 Angel One SmartAPI Setup
+
+1. **Create Account**: Sign up at [Angel One](https://www.angelone.in/)
+2. **Get API Access**: Go to [SmartAPI Portal](https://smartapi.angelone.in/)
+3. **Create App**: Register a new app (free)
+4. **Get Credentials**:
+   - `ANGELONE_API_KEY`: Your API Key
+   - `ANGELONE_CLIENT_CODE`: Your client code (e.g., A12345678)
+   - `ANGELONE_PIN`: Your trading PIN
+   - `ANGELONE_TOTP_SECRET`: Enable 2FA and get the TOTP secret
+
+Without API keys, the engine runs in **mock mode** with simulated data.
 
 ---
 
@@ -135,9 +155,9 @@ Repeat... strategies get better over time!
 │   ├── logger.py          # Colored logging
 │   └── scheduler.py       # Market hours scheduler
 ├── data/
-│   ├── upstox_auth.py     # OAuth2 + TOTP
-│   ├── websocket_streamer.py  # Real-time data
-│   └── instruments.py     # NSE/BSE symbol mapping
+│   ├── angelone_auth.py   # Angel One SmartAPI OAuth2 + TOTP
+│   ├── websocket_streamer.py  # Real-time WebSocket V2 data
+│   └── instruments.py     # NSE/BSE token mapping
 ├── analysis/
 │   ├── regime_analyzer.py # Volatility/Liquidity detection
 │   └── spread_analyzer.py # NSE-BSE spread calculation
@@ -161,9 +181,11 @@ Repeat... strategies get better over time!
 Copy `.env.example` to `.env`:
 
 ```env
-# Optional: Upstox API for live data
-UPSTOX_API_KEY=your_key
-UPSTOX_API_SECRET=your_secret
+# Angel One SmartAPI Credentials
+ANGELONE_API_KEY=your_api_key
+ANGELONE_CLIENT_CODE=A12345678
+ANGELONE_PIN=1234
+ANGELONE_TOTP_SECRET=your_totp_secret
 
 # Trading settings
 SYMBOLS=RELIANCE,TCS,INFY,HDFCBANK,ICICIBANK
@@ -171,8 +193,6 @@ INITIAL_CAPITAL=10000
 MAX_DAILY_LOSS_PERCENT=2.0
 MAX_TRADES_PER_DAY=50
 ```
-
-Without API keys, the engine runs in **mock mode** with simulated data.
 
 ---
 

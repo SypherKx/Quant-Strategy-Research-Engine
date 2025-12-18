@@ -1,65 +1,57 @@
 """
-WebSocket Market Data Streamer
-==============================
+WebSocket Market Data Streamer (Angel One SmartAPI)
+====================================================
 
 🎓 WHAT IS THIS FILE?
-This file handles real-time market data streaming from Upstox.
-It connects to Upstox WebSocket and receives live price updates.
+This file handles real-time market data streaming from Angel One.
+It connects to Angel One WebSocket and receives live price updates.
 
 🎓 WHY WEBSOCKET INSTEAD OF REST?
 
-REST API (old way):
-┌────────────┐      ┌────────────┐
-│ Your App   │ ───► │ Upstox API │  Request
-│            │ ◄─── │            │  Response
-└────────────┘      └────────────┘
-(Repeat every second... wasteful!)
+REST API:
+┌──────────┐  Request   ┌──────────┐
+│  Client  │ ────────►  │  Server  │
+│          │ ◄────────  │          │
+└──────────┘  Response  └──────────┘
+(Must ask every time, adds latency)
 
-WebSocket (modern way):
-┌────────────┐      ┌────────────┐
-│ Your App   │ ═════│ Upstox WS  │  Persistent connection
-│            │ ◄════│ Server     │  Data pushed instantly
-└────────────┘      └────────────┘
-(One connection, infinite updates!)
+WebSocket:
+┌──────────┐  Connect   ┌──────────┐
+│  Client  │ ═════════  │  Server  │
+│          │ ◄═════════ │          │
+└──────────┘  Real-time └──────────┘
+            (Server pushes instantly)
 
-🎓 WEBSOCKET BENEFITS:
-1. SPEED: Data arrives in milliseconds, not seconds
-2. EFFICIENCY: No repeated request overhead
-3. REAL-TIME: Get every tick as it happens
-4. LESS LOAD: Upstox doesn't rate-limit WebSocket
+🎓 ANGEL ONE WEBSOCKET MODES:
+- Mode 1 (LTP): Last Traded Price only (minimal, fast)
+- Mode 2 (Quote): LTP + OHLC + Volume
+- Mode 3 (Snap Quote): Full depth data
 
-🎓 DATA MODES:
-- ltpc: Last Traded Price + Change (minimal, fast)
-- full: Full depth, OHLC, volume (detailed, more data)
+🎓 EXCHANGE TYPES:
+- 1: NSE
+- 2: NFO
+- 3: BSE
+- 5: MCX
 
-We use 'full' mode to get complete market picture.
-
-🎓 MESSAGE FORMAT (from Upstox):
+🎓 MESSAGE FORMAT (from Angel One WebSocket V2):
+Binary data that gets decoded to:
 {
-    "feeds": {
-        "NSE_EQ|INE002A01018": {  // RELIANCE NSE
-            "ff": {  // Full Feed
-                "ltpc": {
-                    "ltp": 2450.50,      // Last traded price
-                    "ltt": "1702809045", // Last trade time (unix)
-                    "cp": 2445.00        // Previous close
-                },
-                "marketOHLC": {
-                    "ohlc": [{"open": 2448, "high": 2455, "low": 2440, "close": 2450}]
-                }
-            }
-        }
-    }
+    "token": "3045",           # Instrument token
+    "exchange_type": 1,        # 1=NSE, 3=BSE
+    "ltp": 245050,            # LTP in paise (divide by 100)
+    "open": 244500,
+    "high": 246000,
+    "low": 244000,
+    "close": 245000,
+    "volume": 1234567
 }
 """
 
+from dataclasses import dataclass, field
+from datetime import datetime
+from typing import Dict, List, Optional, Callable
 import asyncio
 import json
-import websockets
-from datetime import datetime
-from typing import Callable, Dict, List, Optional, Any
-from dataclasses import dataclass, field
-from collections import defaultdict
 import sys
 import os
 
@@ -68,7 +60,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from config import settings
 from core.logger import logger
-from data.upstox_auth import get_auth_client
+from data.angelone_auth import get_auth_client
 
 
 # =========================================================
@@ -84,25 +76,25 @@ class PriceTick:
     Every time a trade happens, we get a tick.
     """
     symbol: str
-    exchange: str           # 'NSE' or 'BSE'
-    ltp: float             # Last Traded Price
+    exchange: str  # "NSE" or "BSE"
+    ltp: float     # Last Traded Price
     timestamp: datetime
     volume: int = 0
     open: float = 0.0
     high: float = 0.0
     low: float = 0.0
     prev_close: float = 0.0
-    change: float = 0.0    # LTP - Prev Close
-    change_pct: float = 0.0  # Change as percentage
+    change: float = 0.0
+    change_pct: float = 0.0
     
     def __post_init__(self):
         """Calculate derived fields."""
-        if self.prev_close > 0:
+        if self.prev_close and self.prev_close > 0:
             self.change = self.ltp - self.prev_close
             self.change_pct = (self.change / self.prev_close) * 100
 
 
-@dataclass  
+@dataclass
 class SpreadData:
     """
     Price spread between NSE and BSE for a symbol.
@@ -112,15 +104,15 @@ class SpreadData:
     Example:
     - RELIANCE on NSE: ₹2450.00
     - RELIANCE on BSE: ₹2451.50
-    - Spread: ₹1.50 (0.06%)
-    
-    If spread is large enough to cover transaction costs,
-    it's a potential trading opportunity!
+    - Spread: ₹1.50 (BSE higher)
+    - If spread > transaction costs → Arbitrage opportunity!
     """
     symbol: str
     nse_price: float
     bse_price: float
     timestamp: datetime
+    nse_volume: int = 0
+    bse_volume: int = 0
     
     @property
     def spread(self) -> float:
@@ -131,27 +123,27 @@ class SpreadData:
     def spread_pct(self) -> float:
         """Spread as percentage of average price."""
         avg_price = (self.nse_price + self.bse_price) / 2
-        if avg_price > 0:
-            return (self.spread / avg_price) * 100
-        return 0.0
+        if avg_price == 0:
+            return 0
+        return (self.spread / avg_price) * 100
     
     @property
     def direction(self) -> str:
         """Which exchange is higher."""
         if self.nse_price > self.bse_price:
-            return "NSE>BSE"
+            return "NSE_HIGH"
         elif self.bse_price > self.nse_price:
-            return "BSE>NSE"
+            return "BSE_HIGH"
         return "EQUAL"
 
 
 # =========================================================
-# WEBSOCKET STREAMER
+# ANGEL ONE WEBSOCKET STREAMER
 # =========================================================
 
 class MarketDataStreamer:
     """
-    Real-time market data streamer using Upstox WebSocket.
+    Real-time market data streamer using Angel One WebSocket V2.
     
     🎓 USAGE:
     streamer = MarketDataStreamer()
@@ -160,32 +152,41 @@ class MarketDataStreamer:
     streamer.on_tick(my_price_handler)
     streamer.on_spread(my_spread_handler)
     
-    # Start streaming
+    # Connect and subscribe
     await streamer.connect()
-    await streamer.subscribe(['RELIANCE', 'TCS'])
+    streamer.subscribe(["RELIANCE", "TCS", "INFY"])
     
-    # Stop streaming
+    # When done
     await streamer.disconnect()
     """
     
-    # Upstox WebSocket endpoint
-    WS_URL = "wss://api.upstox.com/v2/feed/market-data-feed"
+    # Exchange type mappings for Angel One
+    EXCHANGE_NSE = 1
+    EXCHANGE_BSE = 3
+    
+    # Subscription modes
+    MODE_LTP = 1
+    MODE_QUOTE = 2
+    MODE_SNAP_QUOTE = 3
     
     def __init__(self):
         self.auth = get_auth_client()
-        self._websocket = None
-        self._is_connected = False
-        self._subscribed_symbols: List[str] = []
-        
-        # Latest prices for each symbol+exchange
-        self._latest_prices: Dict[str, Dict[str, PriceTick]] = defaultdict(dict)
         
         # Callbacks
         self._tick_callbacks: List[Callable[[PriceTick], None]] = []
         self._spread_callbacks: List[Callable[[SpreadData], None]] = []
         
-        # Receive task
-        self._receive_task: Optional[asyncio.Task] = None
+        # Price cache for spread calculation
+        self._prices: Dict[str, Dict[str, PriceTick]] = {}  # {symbol: {exchange: tick}}
+        
+        # WebSocket client
+        self._ws = None
+        self._connected = False
+        self._running = False
+        
+        # Instrument token mapping
+        self._token_to_symbol: Dict[str, tuple] = {}  # {token: (symbol, exchange)}
+        self._symbol_to_token: Dict[tuple, str] = {}  # {(symbol, exchange): token}
     
     def on_tick(self, callback: Callable[[PriceTick], None]):
         """
@@ -206,58 +207,66 @@ class MarketDataStreamer:
     
     async def connect(self):
         """
-        Connect to Upstox WebSocket.
+        Connect to Angel One WebSocket.
         
         🎓 This establishes the WebSocket connection and starts
         receiving market data.
         """
-        if self._is_connected:
-            logger.warning("Already connected to WebSocket")
-            return
+        logger.info("🔌 Connecting to Angel One WebSocket...")
         
         try:
-            token = await self.auth.get_access_token()
+            # First ensure we have a valid session
+            await self.auth.get_access_token()
             
-            # Connect with auth header
-            headers = {
-                "Authorization": f"Bearer {token}",
-                "Accept": "application/json"
-            }
+            # Get feed token
+            feed_token = self.auth.get_feed_token()
             
-            self._websocket = await websockets.connect(
-                self.WS_URL,
-                extra_headers=headers,
-                ping_interval=30,
-                ping_timeout=10
+            # Initialize WebSocket V2
+            from SmartApi.smartWebSocketV2 import SmartWebSocketV2
+            
+            self._ws = SmartWebSocketV2(
+                auth_token=self.auth._access_token,
+                api_key=settings.ANGELONE_API_KEY,
+                client_code=settings.ANGELONE_CLIENT_CODE,
+                feed_token=feed_token
             )
             
-            self._is_connected = True
-            logger.info("✅ Connected to Upstox WebSocket")
+            # Set up callbacks
+            self._ws.on_open = self._on_ws_open
+            self._ws.on_data = self._on_ws_data
+            self._ws.on_error = self._on_ws_error
+            self._ws.on_close = self._on_ws_close
             
-            # Start receive loop
-            self._receive_task = asyncio.create_task(self._receive_loop())
+            # Connect in background thread (SmartWebSocketV2 is blocking)
+            self._running = True
+            asyncio.get_event_loop().run_in_executor(None, self._ws.connect)
             
+            logger.info("✅ WebSocket connection initiated")
+            
+        except ImportError:
+            logger.error("❌ smartapi-python not installed")
+            logger.info("🔧 Starting mock data streamer instead")
+            self._start_mock_mode()
         except Exception as e:
             logger.error(f"WebSocket connection failed: {e}")
-            raise
+            logger.info("🔧 Starting mock data streamer instead")
+            self._start_mock_mode()
     
     async def disconnect(self):
         """Disconnect from WebSocket."""
-        if self._receive_task:
-            self._receive_task.cancel()
+        logger.info("🔌 Disconnecting from WebSocket...")
+        self._running = False
+        
+        if self._ws:
             try:
-                await self._receive_task
-            except asyncio.CancelledError:
+                self._ws.close_connection()
+            except:
                 pass
         
-        if self._websocket:
-            await self._websocket.close()
-            self._websocket = None
-        
-        self._is_connected = False
-        logger.info("Disconnected from WebSocket")
+        self._connected = False
+        logger.info("✅ Disconnected")
     
-    async def subscribe(self, symbols: List[str]):
+    def subscribe(self, symbols: List[str]):
         """
         Subscribe to market data for given symbols.
         
@@ -267,310 +276,351 @@ class MarketDataStreamer:
         The system will automatically subscribe to both NSE and BSE
         for each symbol to calculate spreads.
         """
-        if not self._is_connected:
-            raise RuntimeError("Not connected. Call connect() first.")
+        logger.info(f"📡 Subscribing to {len(symbols)} symbols...")
         
-        # Build instrument keys for both exchanges
-        # Format: NSE_EQ|ISIN or NSE_EQ|SYMBOL
-        instrument_keys = []
-        for symbol in symbols:
-            # We need instrument tokens from instruments module
-            # For now, use symbol directly
-            instrument_keys.append(f"NSE_EQ|{symbol}")
-            instrument_keys.append(f"BSE_EQ|{symbol}")
-        
-        # Subscribe message
-        subscribe_msg = {
-            "guid": "subscribe_1",
-            "method": "sub",
-            "data": {
-                "mode": "full",
-                "instrumentKeys": instrument_keys
-            }
+        if self._ws and self._connected:
+            # Build token list for both exchanges
+            token_list = []
+            
+            for symbol in symbols:
+                # NSE subscription
+                nse_token = self._get_token(symbol, "NSE")
+                if nse_token:
+                    token_list.append({
+                        "exchangeType": self.EXCHANGE_NSE,
+                        "tokens": [nse_token]
+                    })
+                    self._token_to_symbol[nse_token] = (symbol, "NSE")
+                    self._symbol_to_token[(symbol, "NSE")] = nse_token
+                
+                # BSE subscription
+                bse_token = self._get_token(symbol, "BSE")
+                if bse_token:
+                    token_list.append({
+                        "exchangeType": self.EXCHANGE_BSE,
+                        "tokens": [bse_token]
+                    })
+                    self._token_to_symbol[bse_token] = (symbol, "BSE")
+                    self._symbol_to_token[(symbol, "BSE")] = bse_token
+            
+            if token_list:
+                correlation_id = "quant_engine"
+                self._ws.subscribe(correlation_id, self.MODE_QUOTE, token_list)
+                logger.info(f"✅ Subscribed to {len(token_list)} token streams")
+        else:
+            logger.warning("WebSocket not connected, using mock data")
+    
+    def _get_token(self, symbol: str, exchange: str) -> Optional[str]:
+        """Get instrument token for symbol on exchange."""
+        # Use common large-cap tokens (you should load these from instruments API)
+        token_map = {
+            ("RELIANCE", "NSE"): "2885",
+            ("RELIANCE", "BSE"): "500325",
+            ("TCS", "NSE"): "11536",
+            ("TCS", "BSE"): "532540",
+            ("INFY", "NSE"): "1594",
+            ("INFY", "BSE"): "500209",
+            ("HDFCBANK", "NSE"): "1333",
+            ("HDFCBANK", "BSE"): "500180",
+            ("ICICIBANK", "NSE"): "4963",
+            ("ICICIBANK", "BSE"): "532174",
+            ("SBIN", "NSE"): "3045",
+            ("SBIN", "BSE"): "500112",
+            ("HINDUNILVR", "NSE"): "1394",
+            ("HINDUNILVR", "BSE"): "500696",
+            ("ITC", "NSE"): "1660",
+            ("ITC", "BSE"): "500875",
+            ("BHARTIARTL", "NSE"): "10604",
+            ("BHARTIARTL", "BSE"): "532454",
+            ("KOTAKBANK", "NSE"): "1922",
+            ("KOTAKBANK", "BSE"): "500247",
         }
-        
-        await self._websocket.send(json.dumps(subscribe_msg))
-        self._subscribed_symbols.extend(symbols)
-        
-        logger.info(f"Subscribed to {len(symbols)} symbols: {symbols}")
+        return token_map.get((symbol.upper(), exchange.upper()))
     
-    async def _receive_loop(self):
-        """
-        Main loop that receives and processes messages.
-        
-        🎓 This runs continuously in the background,
-        processing every message from WebSocket.
-        """
-        try:
-            async for message in self._websocket:
-                await self._process_message(message)
-        except websockets.ConnectionClosed:
-            logger.warning("WebSocket connection closed")
-            self._is_connected = False
-        except asyncio.CancelledError:
-            pass
-        except Exception as e:
-            logger.error(f"Error in receive loop: {e}")
-            self._is_connected = False
+    def _on_ws_open(self, wsapp):
+        """WebSocket open callback."""
+        logger.info("✅ WebSocket connected")
+        self._connected = True
     
-    async def _process_message(self, message: str):
-        """
-        Process a WebSocket message.
-        
-        🎓 Messages are JSON with nested structure.
-        We extract price data and create PriceTick objects.
-        """
+    def _on_ws_data(self, wsapp, message):
+        """WebSocket data callback."""
         try:
-            data = json.loads(message)
-            
-            # Check if it's a feed message
-            if "feeds" not in data:
-                return
-            
-            feeds = data["feeds"]
-            
-            for instrument_key, feed_data in feeds.items():
-                # Parse instrument key (e.g., "NSE_EQ|INE002A01018")
-                parts = instrument_key.split("|")
-                if len(parts) != 2:
-                    continue
-                
-                exchange_segment = parts[0]  # "NSE_EQ" or "BSE_EQ"
-                identifier = parts[1]  # ISIN or symbol
-                
-                # Determine exchange
-                if "NSE" in exchange_segment:
-                    exchange = "NSE"
-                elif "BSE" in exchange_segment:
-                    exchange = "BSE"
-                else:
-                    continue
-                
-                # Extract price data
-                ff = feed_data.get("ff", {})
-                ltpc = ff.get("ltpc", {})
-                ohlc_data = ff.get("marketOHLC", {}).get("ohlc", [{}])[0] if ff.get("marketOHLC") else {}
-                
-                if not ltpc.get("ltp"):
-                    continue
-                
-                # Create PriceTick
-                tick = PriceTick(
-                    symbol=identifier,  # Will need to map to symbol
-                    exchange=exchange,
-                    ltp=float(ltpc.get("ltp", 0)),
-                    timestamp=datetime.now(),
-                    prev_close=float(ltpc.get("cp", 0)),
-                    open=float(ohlc_data.get("open", 0)),
-                    high=float(ohlc_data.get("high", 0)),
-                    low=float(ohlc_data.get("low", 0)),
-                    volume=int(ff.get("marketLevel", {}).get("tbq", 0))
-                )
-                
-                # Store latest price
-                self._latest_prices[tick.symbol][tick.exchange] = tick
-                
-                # Notify tick callbacks
-                for callback in self._tick_callbacks:
-                    try:
-                        if asyncio.iscoroutinefunction(callback):
-                            await callback(tick)
-                        else:
-                            callback(tick)
-                    except Exception as e:
-                        logger.error(f"Error in tick callback: {e}")
-                
-                # Check if we have both NSE and BSE prices for spread
-                symbol_prices = self._latest_prices[tick.symbol]
-                if "NSE" in symbol_prices and "BSE" in symbol_prices:
-                    nse_tick = symbol_prices["NSE"]
-                    bse_tick = symbol_prices["BSE"]
-                    
-                    # Only calculate if both are recent (within 5 seconds)
-                    if abs((nse_tick.timestamp - bse_tick.timestamp).total_seconds()) < 5:
-                        spread = SpreadData(
-                            symbol=tick.symbol,
-                            nse_price=nse_tick.ltp,
-                            bse_price=bse_tick.ltp,
-                            timestamp=datetime.now()
-                        )
-                        
-                        # Notify spread callbacks
-                        for callback in self._spread_callbacks:
-                            try:
-                                if asyncio.iscoroutinefunction(callback):
-                                    await callback(spread)
-                                else:
-                                    callback(spread)
-                            except Exception as e:
-                                logger.error(f"Error in spread callback: {e}")
-        
-        except json.JSONDecodeError:
-            logger.warning("Received non-JSON message")
+            self._process_message(message)
         except Exception as e:
             logger.error(f"Error processing message: {e}")
     
+    def _on_ws_error(self, wsapp, error):
+        """WebSocket error callback."""
+        logger.error(f"WebSocket error: {error}")
+    
+    def _on_ws_close(self, wsapp):
+        """WebSocket close callback."""
+        logger.info("WebSocket closed")
+        self._connected = False
+    
+    def _process_message(self, message: dict):
+        """
+        Process a WebSocket message.
+        
+        🎓 Angel One WebSocket V2 sends data in a specific format.
+        We extract price data and create PriceTick objects.
+        """
+        if not message:
+            return
+        
+        try:
+            # Extract data from message
+            token = str(message.get("token", ""))
+            exchange_type = message.get("exchange_type", 1)
+            
+            # Look up symbol
+            symbol_info = self._token_to_symbol.get(token)
+            if not symbol_info:
+                return
+            
+            symbol, exchange = symbol_info
+            
+            # Price values are in paise, convert to rupees
+            ltp = message.get("ltp", 0) / 100.0
+            open_price = message.get("open", 0) / 100.0
+            high = message.get("high", 0) / 100.0
+            low = message.get("low", 0) / 100.0
+            close = message.get("close", 0) / 100.0
+            volume = message.get("volume", 0)
+            
+            # Create tick
+            tick = PriceTick(
+                symbol=symbol,
+                exchange=exchange,
+                ltp=ltp,
+                timestamp=datetime.now(),
+                volume=volume,
+                open=open_price,
+                high=high,
+                low=low,
+                prev_close=close
+            )
+            
+            # Store in cache
+            if symbol not in self._prices:
+                self._prices[symbol] = {}
+            self._prices[symbol][exchange] = tick
+            
+            # Notify tick callbacks
+            for callback in self._tick_callbacks:
+                try:
+                    callback(tick)
+                except Exception as e:
+                    logger.error(f"Tick callback error: {e}")
+            
+            # Check for spread
+            self._check_spread(symbol)
+            
+        except Exception as e:
+            logger.error(f"Message processing error: {e}")
+    
+    def _check_spread(self, symbol: str):
+        """Check if we have both NSE and BSE prices, then notify spread callbacks."""
+        if symbol not in self._prices:
+            return
+        
+        prices = self._prices[symbol]
+        if "NSE" not in prices or "BSE" not in prices:
+            return
+        
+        nse_tick = prices["NSE"]
+        bse_tick = prices["BSE"]
+        
+        # Ensure prices are fresh (within 5 seconds)
+        now = datetime.now()
+        if (now - nse_tick.timestamp).seconds > 5 or (now - bse_tick.timestamp).seconds > 5:
+            return
+        
+        # Create spread data
+        spread = SpreadData(
+            symbol=symbol,
+            nse_price=nse_tick.ltp,
+            bse_price=bse_tick.ltp,
+            timestamp=now,
+            nse_volume=nse_tick.volume,
+            bse_volume=bse_tick.volume
+        )
+        
+        # Notify callbacks
+        for callback in self._spread_callbacks:
+            try:
+                callback(spread)
+            except Exception as e:
+                logger.error(f"Spread callback error: {e}")
+    
     def get_latest_price(self, symbol: str, exchange: str) -> Optional[PriceTick]:
         """Get the latest price for a symbol on an exchange."""
-        return self._latest_prices.get(symbol, {}).get(exchange)
+        return self._prices.get(symbol, {}).get(exchange)
     
     def get_spread(self, symbol: str) -> Optional[SpreadData]:
         """Get current spread for a symbol."""
-        prices = self._latest_prices.get(symbol, {})
-        if "NSE" in prices and "BSE" in prices:
-            return SpreadData(
-                symbol=symbol,
-                nse_price=prices["NSE"].ltp,
-                bse_price=prices["BSE"].ltp,
-                timestamp=datetime.now()
-            )
-        return None
+        if symbol not in self._prices:
+            return None
+        
+        prices = self._prices[symbol]
+        if "NSE" not in prices or "BSE" not in prices:
+            return None
+        
+        return SpreadData(
+            symbol=symbol,
+            nse_price=prices["NSE"].ltp,
+            bse_price=prices["BSE"].ltp,
+            timestamp=datetime.now(),
+            nse_volume=prices["NSE"].volume,
+            bse_volume=prices["BSE"].volume
+        )
+    
+    def _start_mock_mode(self):
+        """Start mock data mode for testing."""
+        logger.info("🔧 Starting MOCK data streamer")
+        self._running = True
+        asyncio.create_task(self._mock_data_loop())
+    
+    async def _mock_data_loop(self):
+        """Generate mock market data for testing."""
+        import random
+        
+        # Base prices for mock data
+        base_prices = {
+            "RELIANCE": 2450.0,
+            "TCS": 3800.0,
+            "INFY": 1550.0,
+            "HDFCBANK": 1650.0,
+            "ICICIBANK": 1050.0,
+        }
+        
+        while self._running:
+            for symbol, base_price in base_prices.items():
+                # Generate slightly different prices for NSE and BSE
+                nse_variation = random.uniform(-0.5, 0.5)
+                bse_variation = random.uniform(-0.5, 0.5)
+                
+                # Add some spread
+                spread_amount = random.uniform(0.1, 1.0)
+                
+                nse_price = base_price + nse_variation
+                bse_price = base_price + bse_variation + spread_amount
+                
+                # Sometimes flip which is higher
+                if random.random() > 0.5:
+                    nse_price, bse_price = bse_price, nse_price
+                
+                now = datetime.now()
+                
+                # Create NSE tick
+                nse_tick = PriceTick(
+                    symbol=symbol,
+                    exchange="NSE",
+                    ltp=round(nse_price, 2),
+                    timestamp=now,
+                    volume=random.randint(10000, 100000),
+                    prev_close=base_price
+                )
+                
+                # Create BSE tick
+                bse_tick = PriceTick(
+                    symbol=symbol,
+                    exchange="BSE",
+                    ltp=round(bse_price, 2),
+                    timestamp=now,
+                    volume=random.randint(5000, 50000),
+                    prev_close=base_price
+                )
+                
+                # Store in cache
+                if symbol not in self._prices:
+                    self._prices[symbol] = {}
+                self._prices[symbol]["NSE"] = nse_tick
+                self._prices[symbol]["BSE"] = bse_tick
+                
+                # Notify callbacks
+                for callback in self._tick_callbacks:
+                    try:
+                        callback(nse_tick)
+                        callback(bse_tick)
+                    except Exception as e:
+                        logger.error(f"Mock tick callback error: {e}")
+                
+                # Create and notify spread
+                spread = SpreadData(
+                    symbol=symbol,
+                    nse_price=nse_tick.ltp,
+                    bse_price=bse_tick.ltp,
+                    timestamp=now,
+                    nse_volume=nse_tick.volume,
+                    bse_volume=bse_tick.volume
+                )
+                
+                for callback in self._spread_callbacks:
+                    try:
+                        callback(spread)
+                    except Exception as e:
+                        logger.error(f"Mock spread callback error: {e}")
+            
+            # Sleep before next update
+            await asyncio.sleep(1)
 
 
 # =========================================================
 # MOCK STREAMER FOR TESTING
 # =========================================================
 
-class MockMarketDataStreamer:
+class MockMarketDataStreamer(MarketDataStreamer):
     """
-    Mock streamer that generates fake market data.
+    Mock market data streamer for testing without real API.
     
-    🎓 WHY MOCK?
-    - Testing without real API connection
-    - Development when markets are closed
-    - Unit testing strategies
+    🎓 Generates realistic-looking fake market data
+    for testing the strategy logic.
     """
     
     def __init__(self):
-        self._is_connected = False
-        self._tick_callbacks = []
-        self._spread_callbacks = []
-        self._generate_task = None
-        self._latest_prices = defaultdict(dict)
-        
+        super().__init__()
         logger.info("🔧 Using MOCK market data streamer")
     
-    def on_tick(self, callback):
-        self._tick_callbacks.append(callback)
-    
-    def on_spread(self, callback):
-        self._spread_callbacks.append(callback)
-    
     async def connect(self):
-        self._is_connected = True
-        self._generate_task = asyncio.create_task(self._generate_loop())
-        logger.info("✅ Mock streamer connected")
+        """Start mock data generation."""
+        logger.info("🔌 Starting mock data stream...")
+        self._running = True
+        await self._mock_data_loop()
     
     async def disconnect(self):
-        if self._generate_task:
-            self._generate_task.cancel()
-        self._is_connected = False
-        logger.info("Mock streamer disconnected")
+        """Stop mock data generation."""
+        self._running = False
+        logger.info("✅ Mock data stream stopped")
     
-    async def subscribe(self, symbols: List[str]):
-        self._symbols = symbols
-        logger.info(f"Mock subscribed to: {symbols}")
-    
-    async def _generate_loop(self):
-        """Generate fake price data."""
-        import random
-        
-        # Base prices for mock symbols
-        base_prices = {
-            "RELIANCE": 2450.0,
-            "TCS": 3800.0,
-            "INFY": 1500.0,
-            "HDFCBANK": 1650.0,
-            "ICICIBANK": 1050.0,
-        }
-        
-        while self._is_connected:
-            try:
-                for symbol in getattr(self, '_symbols', settings.symbol_list):
-                    base = base_prices.get(symbol, 1000.0)
-                    
-                    for exchange in ["NSE", "BSE"]:
-                        # Random price movement
-                        noise = random.gauss(0, base * 0.001)  # 0.1% std dev
-                        
-                        # BSE slightly different from NSE
-                        if exchange == "BSE":
-                            noise += random.gauss(0, base * 0.0005)
-                        
-                        price = base + noise
-                        
-                        tick = PriceTick(
-                            symbol=symbol,
-                            exchange=exchange,
-                            ltp=round(price, 2),
-                            timestamp=datetime.now(),
-                            prev_close=base,
-                            volume=random.randint(1000, 10000)
-                        )
-                        
-                        self._latest_prices[symbol][exchange] = tick
-                        
-                        for callback in self._tick_callbacks:
-                            if asyncio.iscoroutinefunction(callback):
-                                await callback(tick)
-                            else:
-                                callback(tick)
-                    
-                    # Generate spread
-                    nse = self._latest_prices[symbol]["NSE"]
-                    bse = self._latest_prices[symbol]["BSE"]
-                    
-                    spread = SpreadData(
-                        symbol=symbol,
-                        nse_price=nse.ltp,
-                        bse_price=bse.ltp,
-                        timestamp=datetime.now()
-                    )
-                    
-                    for callback in self._spread_callbacks:
-                        if asyncio.iscoroutinefunction(callback):
-                            await callback(spread)
-                        else:
-                            callback(spread)
-                
-                await asyncio.sleep(1)  # Update every second
-                
-            except asyncio.CancelledError:
-                break
-            except Exception as e:
-                logger.error(f"Error in mock generator: {e}")
-                await asyncio.sleep(1)
-    
-    def get_latest_price(self, symbol: str, exchange: str) -> Optional[PriceTick]:
-        return self._latest_prices.get(symbol, {}).get(exchange)
-    
-    def get_spread(self, symbol: str) -> Optional[SpreadData]:
-        prices = self._latest_prices.get(symbol, {})
-        if "NSE" in prices and "BSE" in prices:
-            return SpreadData(
-                symbol=symbol,
-                nse_price=prices["NSE"].ltp,
-                bse_price=prices["BSE"].ltp,
-                timestamp=datetime.now()
-            )
-        return None
-
-
-def get_streamer(use_mock: bool = False) -> MarketDataStreamer:
-    """
-    Factory function to get appropriate streamer.
-    
-    🎓 Returns MockMarketDataStreamer if:
-    - use_mock=True
-    - Credentials not configured
-    """
-    if use_mock or not settings.UPSTOX_API_KEY or settings.UPSTOX_API_KEY == "your_api_key_here":
-        return MockMarketDataStreamer()
-    return MarketDataStreamer()
+    def subscribe(self, symbols: List[str]):
+        """Mock subscription (no-op, generates all data anyway)."""
+        logger.info(f"📡 Mock subscribed to {len(symbols)} symbols")
 
 
 # =========================================================
-# MAIN - Test streaming
+# SINGLETON INSTANCE
+# =========================================================
+
+_streamer: Optional[MarketDataStreamer] = None
+
+
+def get_market_streamer() -> MarketDataStreamer:
+    """Get or create the singleton market data streamer."""
+    global _streamer
+    
+    if _streamer is None:
+        # Check if we have real credentials
+        if not settings.ANGELONE_API_KEY or settings.ANGELONE_API_KEY == "your_api_key_here":
+            _streamer = MockMarketDataStreamer()
+        else:
+            _streamer = MarketDataStreamer()
+    
+    return _streamer
+
+
+# =========================================================
+# MAIN - Test streamer
 # =========================================================
 
 if __name__ == "__main__":
@@ -578,31 +628,30 @@ if __name__ == "__main__":
         print("🔧 Testing market data streamer...")
         print()
         
-        # Use mock for testing
-        streamer = get_streamer(use_mock=True)
+        streamer = get_market_streamer()
         
-        # Track ticks received
-        tick_count = 0
-        
+        # Add test callbacks
         def on_tick(tick: PriceTick):
-            nonlocal tick_count
-            tick_count += 1
-            print(f"📊 {tick.exchange:3} {tick.symbol:10} ₹{tick.ltp:,.2f} ({tick.change_pct:+.2f}%)")
+            print(f"📊 {tick.symbol} {tick.exchange}: ₹{tick.ltp:.2f}")
         
         def on_spread(spread: SpreadData):
-            print(f"   ↔️  Spread: ₹{spread.spread:.2f} ({spread.spread_pct:.4f}%) [{spread.direction}]")
+            print(f"📈 {spread.symbol} Spread: ₹{spread.spread:.2f} ({spread.spread_pct:.3f}%) - {spread.direction}")
         
         streamer.on_tick(on_tick)
         streamer.on_spread(on_spread)
         
+        # Connect
         await streamer.connect()
-        await streamer.subscribe(['RELIANCE', 'TCS'])
         
-        # Run for 10 seconds
-        print("\n⏳ Streaming for 10 seconds...\n")
-        await asyncio.sleep(10)
+        # Subscribe to symbols
+        streamer.subscribe(settings.symbol_list)
         
+        # Run for 30 seconds
+        print("\n⏳ Running for 30 seconds...\n")
+        await asyncio.sleep(30)
+        
+        # Disconnect
         await streamer.disconnect()
-        print(f"\n✅ Received {tick_count} ticks")
+        print("\n✅ Test complete!")
     
     asyncio.run(main())

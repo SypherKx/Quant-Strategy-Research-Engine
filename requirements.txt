@@ -9,8 +9,8 @@ uvicorn[standard]>=0.24.0
 websockets>=12.0
 httpx>=0.25.0
 
-# Upstox SDK
-upstox-python-sdk>=2.0
+# Angel One SmartAPI SDK
+smartapi-python>=1.4.0
 
 # Environment & Config
 python-dotenv>=1.0.0
@@ -27,7 +27,7 @@ numpy>=1.24.0
 schedule>=1.2.0
 apscheduler>=3.10.0
 
-# TOTP for Upstox Auth
+# TOTP for Angel One Auth
 pyotp>=2.9.0
 
 # HTML Templates
@@ -35,3 +35,12 @@ jinja2>=3.1.0
 
 # Date/Time handling
 python-dateutil>=2.8.0
+
+# Logging (used by SmartAPI)
+logzero>=1.7.0
+
+# WebSocket client (used by SmartAPI)
+websocket-client>=1.6.0
+
+# Encryption (used by SmartAPI)
+pycryptodome>=3.19.0

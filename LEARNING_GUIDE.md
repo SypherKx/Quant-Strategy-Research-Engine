@@ -72,7 +72,7 @@ Our Approach:
 
 **REST API (polling):**
 ```
-Your App                        Upstox Server
+Your App                        Angel One Server
     │                                │
     │──── "Give me RELIANCE price" ──►
     │◄─────── "₹2450" ───────────────│
@@ -92,7 +92,7 @@ Problems:
 
 **WebSocket (streaming):**
 ```
-Your App                        Upstox Server
+Your App                        Angel One Server
     │                                │
     │══════ Connect Once ═══════════►│
     │                                │
@@ -430,7 +430,7 @@ def my_custom_strategy(cls) -> 'StrategyDNA':
 
 ### Q: Why mock mode exists?
 
-A: For testing without Upstox account:
+A: For testing without Angel One account:
 - Working during market closed hours
 - Development and debugging
 - Learning the system before getting API credentials

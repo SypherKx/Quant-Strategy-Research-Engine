@@ -39,25 +39,25 @@ class Settings(BaseSettings):
     """
     
     # =========================================================
-    # UPSTOX API CREDENTIALS
+    # ANGEL ONE SMARTAPI CREDENTIALS
     # =========================================================
-    # These are required - the app won't work without them
+    # Get these from https://smartapi.angelone.in/
     
-    UPSTOX_API_KEY: str = Field(
+    ANGELONE_API_KEY: str = Field(
         default="",
-        description="Your Upstox API Key (Client ID)"
+        description="Your Angel One API Key"
     )
-    UPSTOX_API_SECRET: str = Field(
+    ANGELONE_CLIENT_CODE: str = Field(
         default="",
-        description="Your Upstox API Secret"
+        description="Your Angel One Client Code (e.g., A12345678)"
     )
-    UPSTOX_TOTP_SECRET: str = Field(
+    ANGELONE_PIN: str = Field(
         default="",
-        description="TOTP secret for automated login"
+        description="Your Angel One Trading PIN"
     )
-    UPSTOX_REDIRECT_URI: str = Field(
-        default="http://localhost:8000/callback",
-        description="OAuth redirect URI (must match Upstox app settings)"
+    ANGELONE_TOTP_SECRET: str = Field(
+        default="",
+        description="TOTP secret for two-factor authentication"
     )
     
     # =========================================================
@@ -111,7 +111,7 @@ class Settings(BaseSettings):
     # =========================================================
     
     INITIAL_CAPITAL: float = Field(
-        default=10000.0,  # ₹10,000 - Changed per user request
+        default=10000.0,  # ₹10,000
         ge=10000.0,
         description="Starting virtual capital in INR"
     )
@@ -182,17 +182,21 @@ def validate_settings() -> bool:
     """
     errors = []
     
-    if not settings.UPSTOX_API_KEY or settings.UPSTOX_API_KEY == "your_api_key_here":
-        errors.append("UPSTOX_API_KEY is not set")
+    # Check Angel One credentials
+    if not settings.ANGELONE_API_KEY or settings.ANGELONE_API_KEY == "your_api_key_here":
+        errors.append("ANGELONE_API_KEY is not set")
     
-    if not settings.UPSTOX_API_SECRET or settings.UPSTOX_API_SECRET == "your_api_secret_here":
-        errors.append("UPSTOX_API_SECRET is not set")
+    if not settings.ANGELONE_CLIENT_CODE or settings.ANGELONE_CLIENT_CODE == "your_client_code_here":
+        errors.append("ANGELONE_CLIENT_CODE is not set")
+    
+    if not settings.ANGELONE_PIN or settings.ANGELONE_PIN == "your_pin_here":
+        errors.append("ANGELONE_PIN is not set")
     
     if errors:
         print("⚠️  Configuration Errors:")
         for error in errors:
             print(f"   - {error}")
-        print("\n📝 Please copy .env.example to .env and fill in your credentials")
+        print("\n📝 Please copy .env.example to .env and fill in your Angel One credentials")
         return False
     
     return True

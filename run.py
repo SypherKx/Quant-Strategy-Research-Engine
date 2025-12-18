@@ -9,7 +9,7 @@
 #
 # 🎓 HOW TO RUN:
 # 1. Copy .env.example to .env
-# 2. Fill in your Upstox API credentials
+# 2. Fill in your Angel One SmartAPI credentials
 # 3. Install dependencies: pip install -r requirements.txt
 # 4. Run: python run.py
 # 5. Open http://localhost:8000 in browser

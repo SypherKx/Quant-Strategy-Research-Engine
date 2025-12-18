@@ -43,8 +43,8 @@ from config import settings
 from core.logger import logger
 from core.database import init_database
 from core.scheduler import MarketScheduler, get_session_info, is_market_open
-from data.websocket_streamer import get_streamer, SpreadData, PriceTick
-from data.upstox_auth import get_auth_client
+from data.websocket_streamer import get_market_streamer, SpreadData, PriceTick
+from data.angelone_auth import get_auth_client
 from analysis.regime_analyzer import get_regime_analyzer
 from analysis.spread_analyzer import get_spread_analyzer
 from strategies.generator import get_strategy_generator
@@ -101,7 +101,7 @@ async def lifespan(app: FastAPI):
         engine.set_champion(strategies[0].id)
     
     # Initialize market data streamer (mock mode for testing)
-    app_state.streamer = get_streamer(use_mock=True)
+    app_state.streamer = get_market_streamer()
     
     # Register callbacks
     app_state.streamer.on_tick(on_tick_received)
